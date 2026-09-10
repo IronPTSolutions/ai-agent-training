@@ -12,7 +12,6 @@ const MOCK_WEATHER: Record<string, { temperatura: number; condicion: string }> =
     bilbao: { temperatura: 18, condicion: "lluvia" },
   };
 
-
 const getWeather = new FunctionTool({
   name: "get_weather",
   description:
@@ -62,7 +61,11 @@ function inputGuardrail({
     );
     return {
       content: {
-        parts: [{ text: "Lo siento, no puedo procesar peticiones con datos sensibles." }],
+        parts: [
+          {
+            text: "Lo siento, no puedo procesar peticiones con datos sensibles.",
+          },
+        ],
         role: "model",
       },
     };
@@ -90,7 +93,9 @@ function outputGuardrail({
   );
 
   if (sanitized !== text) {
-    console.warn("[guardrail:output] Email detectado y redactado en la respuesta");
+    console.warn(
+      "[guardrail:output] Email detectado y redactado en la respuesta",
+    );
     return {
       ...response,
       content: { parts: [{ text: sanitized }], role: "model" },
@@ -105,7 +110,7 @@ function outputGuardrail({
 
 export const rootAgent = new LlmAgent({
   name: "agente-meteorologico",
-  model: "gemini-2.5-flash",
+  model: "gemini-3.6-flash",
   description:
     "Agente de demostración que informa sobre el tiempo en ciudades españolas.",
   instruction: `
