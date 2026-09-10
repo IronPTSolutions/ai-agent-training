@@ -9,9 +9,10 @@
 
 1. [Modelo, LLM y Agente — ¿cuál es la diferencia?](#1-modelo-llm-y-agente)
 2. [Anatomía de un agente](#2-anatomía-de-un-agente)
-3. [Harness, Graphs y Workflows](#3-harness-graphs-y-workflows)
-4. [Observabilidad y Evaluaciones](#4-observabilidad-y-evaluaciones)
-5. [Ejemplo práctico: Google ADK en TypeScript](#5-ejemplo-práctico-google-adk)
+3. [Memoria y Contexto](#3-memoria-y-contexto)
+4. [Harness, Graphs y Workflows](#4-harness-graphs-y-workflows)
+5. [Observabilidad y Evaluaciones](#5-observabilidad-y-evaluaciones)
+6. [Ejemplo práctico: Google ADK en TypeScript](#6-ejemplo-práctico-google-adk)
 
 ---
 
@@ -149,7 +150,96 @@ En Google ADK, los guardrails se implementan como **callbacks**: `beforeModelCal
 
 ---
 
-## 3. Harness, Graphs y Workflows
+## 3. Memoria y Contexto
+
+### El LLM no tiene memoria — el agente sí
+
+Un LLM, por sí solo, es **completamente sin estado**. Cada llamada a la API es independiente: el modelo no recuerda la conversación anterior, no sabe quién eres, y no tiene noción del tiempo. Lo que llamamos "memoria" en un agente es siempre una construcción del harness, no una propiedad del LLM.
+
+### La ventana de contexto
+
+La **ventana de contexto** es la cantidad máxima de tokens que el LLM puede procesar en una sola llamada. Es la "memoria de trabajo" del modelo en ese instante: todo lo que está en la ventana es lo que el modelo puede "ver" y razonar.
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                    VENTANA DE CONTEXTO                        │
+│  ┌──────────────┬───────────────────────────┬──────────────┐  │
+│  │ System prompt│  Historial de conversación │ Nuevo prompt │  │
+│  └──────────────┴───────────────────────────┴──────────────┘  │
+│                        ▲ límite de tokens ▲                   │
+└───────────────────────────────────────────────────────────────┘
+```
+
+Los modelos actuales tienen ventanas de contexto muy grandes (Gemini 2.5 Pro: 1M tokens, Claude Opus 4: 200K tokens), pero no son infinitas. Gestionar qué entra en la ventana es una de las decisiones de diseño más importantes al construir un agente.
+
+### Tipos de memoria en un agente
+
+Los agentes implementan memoria de diferentes formas según el alcance temporal que necesitan:
+
+| Tipo | Duración | Cómo funciona | Cuándo usarlo |
+|---|---|---|---|
+| **In-context** | Duración de la sesión | El historial de mensajes se incluye en cada llamada | Conversaciones cortas |
+| **Externa (RAG)** | Persistente | Se busca en una base de datos vectorial y se inyecta en el contexto | Documentación, bases de conocimiento |
+| **Tool-based** | Persistente | El agente llama a una tool que lee/escribe en una BD | Estado de usuario, preferencias |
+| **Resumen** | Media sesión | El harness resume el historial antiguo para liberar tokens | Conversaciones largas |
+
+### Memoria in-context: el historial de mensajes
+
+Es el tipo más sencillo. El harness acumula el historial y lo envía completo al LLM en cada turno:
+
+```
+Turno 1:  [system] + [user: "Hola"]                          → LLM → respuesta 1
+Turno 2:  [system] + [user: "Hola"] + [asist: resp 1] + [user: "¿y en Barcelona?"]  → LLM → respuesta 2
+Turno 3:  [system] + turno1 + turno2 + [user: "¿más frío que ayer?"]  → LLM → respuesta 3
+```
+
+El coste crece con cada turno porque se reenvían todos los tokens anteriores. Una conversación de 50 turnos puede consumir muchos más tokens de lo que parece.
+
+### Memoria externa: RAG
+
+**RAG (Retrieval-Augmented Generation)** es el patrón estándar para dar al agente acceso a conocimiento que no cabe en la ventana de contexto. El flujo es:
+
+```
+User: "¿Qué dice la política de devoluciones?"
+         │
+         ▼
+  Búsqueda semántica
+  en base vectorial
+         │
+         ▼
+  Top-3 fragmentos relevantes
+  de la política de devoluciones
+         │
+         ▼
+  [system] + [fragmentos recuperados] + [user prompt]  →  LLM  →  Respuesta
+```
+
+Los documentos se trocean, se convierten en vectores (embeddings) y se almacenan. En tiempo de ejecución, la pregunta del usuario también se convierte en vector y se buscan los fragmentos más similares por distancia coseno. Solo esos fragmentos se inyectan en el contexto — no el documento entero.
+
+### El problema del olvido y el resumen
+
+Cuando una conversación supera el límite de la ventana de contexto, el harness tiene que decidir qué hacer. Opciones:
+
+- **Truncar**: descartar los mensajes más antiguos. Simple pero pierde contexto.
+- **Resumir**: pedir al LLM que resuma el historial antiguo antes de descartarlo. Preserva lo esencial.
+- **Comprimir con embeddings**: almacenar el historial en memoria externa y recuperar solo lo relevante.
+
+La mayoría de los frameworks (ADK incluido) implementan una estrategia de resumen automático cuando el historial crece demasiado.
+
+### Prompt caching
+
+Los proveedores de LLM ofrecen **prompt caching**: si el prefijo del prompt (system prompt + contexto estático) es idéntico entre llamadas, el proveedor reutiliza el cómputo ya realizado. Esto reduce latencia y coste significativamente en agentes con system prompts largos o documentos de referencia fijos.
+
+```
+Sin cache:  [system: 10K tokens] + [historial: 5K] + [nuevo: 100]  → cobra 15.1K tokens
+Con cache:  [system: 10K tokens] ← hit de cache    + [historial + nuevo: 5.1K]  → cobra ~5.5K tokens
+```
+
+Gemini, Claude y GPT-4 soportan prompt caching. ADK lo activa automáticamente cuando detecta prefijos estáticos repetidos.
+
+---
+
+## 4. Harness, Graphs y Workflows
 
 ### Harness
 
@@ -205,7 +295,7 @@ Los workflows pueden ser secuenciales, paralelos o condicionales. Google ADK sop
 
 ---
 
-## 4. Observabilidad y Evaluaciones
+## 5. Observabilidad y Evaluaciones
 
 ### ¿Por qué es difícil la observabilidad en agentes?
 
@@ -275,7 +365,7 @@ Dashboard de calidad → Regresiones → Iteración del system prompt o tools
 
 ---
 
-## 5. Ejemplo práctico: Google ADK
+## 6. Ejemplo práctico: Google ADK
 
 ### ¿Qué es Google ADK?
 
