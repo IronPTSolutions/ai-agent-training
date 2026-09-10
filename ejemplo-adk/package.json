@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx adk web agent.ts",
-    "run-agent": "npx adk run agent.ts"
+    "dev": "node --env-file=.env node_modules/.bin/adk web agent.ts",
+    "run-agent": "node --env-file=.env node_modules/.bin/adk run agent.ts"
   },
   "dependencies": {
     "@google/adk": "^1.0.0",

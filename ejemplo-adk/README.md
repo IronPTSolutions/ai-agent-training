@@ -12,6 +12,8 @@ Ilustra: system prompt, tool, input guardrail y output guardrail.
 
 ```bash
 npm install
+cp .env.example .env
+# Edita .env y añade tu API key de https://aistudio.google.com
 ```
 
 ## Ejecución
@@ -19,7 +21,7 @@ npm install
 **Opción A — Interfaz web (recomendada para la demo):**
 
 ```bash
-GOOGLE_API_KEY=tu-api-key npx adk web agent.ts
+npm run dev
 ```
 
 Abre `http://localhost:3000` en el navegador. Verás el inspector visual con el historial de mensajes, los tool calls y los spans.
@@ -27,7 +29,7 @@ Abre `http://localhost:3000` en el navegador. Verás el inspector visual con el 
 **Opción B — CLI:**
 
 ```bash
-GOOGLE_API_KEY=tu-api-key npx adk run agent.ts
+npm run run-agent
 ```
 
 ## Cosas a probar
